@@ -1,0 +1,60 @@
+name: Build DSI Remote Support (Windows x64)
+
+on:
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies (vcpkg)
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git $env:USERPROFILE\vcpkg
+          cd $env:USERPROFILE\vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg.exe install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
+        shell: pwsh
+
+      - name: Set custom server + key
+        env:
+          RENDEZVOUS_SERVER: ${{ secrets.RENDEZVOUS_SERVER }}
+          RS_PUB_KEY: ${{ secrets.RS_PUB_KEY }}
+        run: |
+          # This replaces the defaults with your values
+          $files = Get-ChildItem -Recurse -Filter config.rs
+          foreach ($file in $files) {
+            (Get-Content $file.FullName) -replace 'DEFAULT_RENDEZVOUS_SERVER: &str = "[^"]*"', "DEFAULT_RENDEZVOUS_SERVER: &str = `"$env:RENDEZVOUS_SERVER`"" |
+            Set-Content $file.FullName
+            (Get-Content $file.FullName) -replace 'DEFAULT_RS_PUB_KEY: &str = "[^"]*"', "DEFAULT_RS_PUB_KEY: &str = `"$env:RS_PUB_KEY`"" |
+            Set-Content $file.FullName
+          }
+        shell: pwsh
+
+      - name: Build Windows x64
+        run: cargo build --release --target x86_64-pc-windows-msvc
+        shell: pwsh
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSI-Remote-Support-Windows
+          path: target/x86_64-pc-windows-msvc/release/dsi-remote-support.exe
