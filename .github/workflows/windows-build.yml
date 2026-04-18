@@ -1,15 +1,14 @@
-name: Build DSI Remote Support (Windows x64)
+name: Build DSI Remote Support (Windows x64 only)
 
 on:
-  workflow_dispatch:  # Allows manual trigger
+  workflow_dispatch:
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -26,34 +25,37 @@ jobs:
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
-      - name: Install dependencies (vcpkg)
+      - name: Install vcpkg + dependencies
         run: |
           git clone https://github.com/microsoft/vcpkg.git $env:USERPROFILE\vcpkg
           cd $env:USERPROFILE\vcpkg
           .\bootstrap-vcpkg.bat
-          .\vcpkg.exe install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
+          .\vcpkg.exe install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static --recurse
         shell: pwsh
 
-      - name: Set custom server + key
+      - name: Set VCPKG_ROOT environment
+        run: echo "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+        shell: pwsh
+
+      - name: Inject your server + key
         env:
           RENDEZVOUS_SERVER: ${{ secrets.RENDEZVOUS_SERVER }}
           RS_PUB_KEY: ${{ secrets.RS_PUB_KEY }}
         run: |
-          # This replaces the defaults with your values
-          $files = Get-ChildItem -Recurse -Filter config.rs
+          $files = Get-ChildItem -Recurse -Filter "config.rs"
           foreach ($file in $files) {
-            (Get-Content $file.FullName) -replace 'DEFAULT_RENDEZVOUS_SERVER: &str = "[^"]*"', "DEFAULT_RENDEZVOUS_SERVER: &str = `"$env:RENDEZVOUS_SERVER`"" |
-            Set-Content $file.FullName
-            (Get-Content $file.FullName) -replace 'DEFAULT_RS_PUB_KEY: &str = "[^"]*"', "DEFAULT_RS_PUB_KEY: &str = `"$env:RS_PUB_KEY`"" |
-            Set-Content $file.FullName
+            (Get-Content $file.FullName) -replace 'DEFAULT_RENDEZVOUS_SERVER: &str = "[^"]*"', "DEFAULT_RENDEZVOUS_SERVER: &str = `"$env:RENDEZVOUS_SERVER`"" | Set-Content $file.FullName
+            (Get-Content $file.FullName) -replace 'DEFAULT_RS_PUB_KEY: &str = "[^"]*"', "DEFAULT_RS_PUB_KEY: &str = `"$env:RS_PUB_KEY`"" | Set-Content $file.FullName
           }
         shell: pwsh
 
-      - name: Build Windows x64
+      - name: Build Release
+        env:
+          VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
         run: cargo build --release --target x86_64-pc-windows-msvc
         shell: pwsh
 
-      - name: Upload Artifact
+      - name: Upload DSI Remote Support.exe
         uses: actions/upload-artifact@v4
         with:
           name: DSI-Remote-Support-Windows
